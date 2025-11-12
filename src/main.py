@@ -42,26 +42,30 @@ class GeospatialViewer(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
 
-        # Create splitter for left control panel and right map display
+        # Create splitter for left map display and right control panel
         from PyQt5.QtWidgets import QSplitter
         splitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(splitter)
 
-        # Left control panel
-        left_panel = self.create_control_panel()
+        # Left map display
+        left_panel = self.create_map_display()
         splitter.addWidget(left_panel)
 
-        # Right map display
-        right_panel = self.create_map_display()
+        # Right control panel (contains file operations at top and table below)
+        right_panel = self.create_control_panel()
         splitter.addWidget(right_panel)
 
         # Set the stretch factors
-        splitter.setSizes([400, 1000])  # Left panel gets 400px, right gets remaining space
+        splitter.setSizes([1000, 400])  # Left map gets 1000px, right control panel gets 400px
 
     def create_control_panel(self):
-        # Left panel for controls
+        # Right panel for controls (file operations and navigation at top, table below)
         control_panel = QWidget()
         control_layout = QVBoxLayout(control_panel)
+
+        # Create a vertical layout for the top section (file operations and navigation)
+        top_section = QWidget()
+        top_layout = QVBoxLayout(top_section)
 
         # File loading buttons
         file_group = QGroupBox("File Operations")
@@ -75,17 +79,7 @@ class GeospatialViewer(QMainWindow):
         self.load_image_btn.clicked.connect(self.load_georef_image)
         file_layout.addWidget(self.load_image_btn)
 
-        control_layout.addWidget(file_group)
-
-        # SHP table display
-        table_group = QGroupBox("SHP Table Data")
-        table_layout = QVBoxLayout(table_group)
-
-        self.table_widget = TableDisplayWidget()
-        self.table_widget.set_data_handler(self.data_handler)
-        table_layout.addWidget(self.table_widget)
-
-        control_layout.addWidget(table_group)
+        top_layout.addWidget(file_group)
 
         # Navigation controls
         nav_group = QGroupBox("Navigation")
@@ -128,10 +122,20 @@ class GeospatialViewer(QMainWindow):
         self.workflow_label.setWordWrap(True)
         nav_layout.addRow(self.workflow_label)
 
-        control_layout.addWidget(nav_group)
+        top_layout.addWidget(nav_group)
 
-        # Add stretch to push everything up
-        control_layout.addStretch()
+        # Add the top section (file ops and navigation) to the main control layout
+        control_layout.addWidget(top_section)
+
+        # SHP table display (lower section)
+        table_group = QGroupBox("SHP Table Data")
+        table_layout = QVBoxLayout(table_group)
+
+        self.table_widget = TableDisplayWidget()
+        self.table_widget.set_data_handler(self.data_handler)
+        table_layout.addWidget(self.table_widget)
+
+        control_layout.addWidget(table_group)
 
         return control_panel
 
