@@ -42,3 +42,9 @@ WORKFLOW_INSTRUCTIONS = "Workflow: Look at map → Write ID in field → Click '
 
 # Zoom display format
 ZOOM_DISPLAY_FORMAT = "Zoom: {zoom_level:.1f}x"
+
+# Column assignment feature
+COLUMN_LABEL = "Column:"
+DATA_LABEL = "Data:"
+ASSIGN_DATA_BUTTON_TEXT = "Assign Data & Next"
+ASSIGN_DATA_WORKFLOW = "Column Workflow: Select column → Enter data → Click 'Assign Data & Next' → Next point auto-zooms"

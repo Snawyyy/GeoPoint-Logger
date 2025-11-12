@@ -18,16 +18,18 @@ from data_handler import GeospatialDataHandler
 from map_display import MapDisplayWidget
 from table_display import TableDisplayWidget
 from workflow import WorkflowManager
+from column_assignment import ColumnAssignmentFeature
 
 
 class FileLoader:
     """Handles file loading operations"""
     
-    def __init__(self, data_handler, status_label, table_widget, map_widget):
+    def __init__(self, data_handler, status_label, table_widget, map_widget, column_assignment_feature=None):
         self.data_handler = data_handler
         self.status_label = status_label
-        self.table_widget = table_widget
+        self.table_widget = table_widget  # May be None if table UI is removed
         self.map_widget = map_widget
+        self.column_assignment_feature = column_assignment_feature
 
     def load_shp_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -37,8 +39,9 @@ class FileLoader:
         if file_path:
             success, message = self.data_handler.load_shapefile(file_path)
             if success:
-                # Update the table display
-                self.table_widget.update_table()
+                # Update the table display (skip if table is disabled)
+                if self.table_widget:
+                    self.table_widget.update_table()
 
                 # Update the map display
                 self._update_map_display()
@@ -75,12 +78,13 @@ class FileLoader:
 class NavigationManager:
     """Manages navigation between points with automatic zooming"""
     
-    def __init__(self, data_handler, map_widget, status_label, id_input, update_map_func):
+    def __init__(self, data_handler, map_widget, status_label, id_input, update_map_func, column_assignment_feature=None):
         self.data_handler = data_handler
         self.map_widget = map_widget
         self.status_label = status_label
         self.id_input = id_input
         self.update_map_func = update_map_func
+        self.column_assignment_feature = column_assignment_feature
 
     def goto_id(self, zoom_level):
         """Navigate to a specific ID"""
@@ -105,6 +109,10 @@ class NavigationManager:
                         self.map_widget.zoom_to_point(x, y, zoom_level)
                     except:
                         pass  # If zoom fails, just continue
+
+                # Update column assignment display for the new current point
+                if self.column_assignment_feature:
+                    self.column_assignment_feature.update_current_value_display()
             else:
                 self.status_label.setText(INDEX_OUT_OF_RANGE.format(target_id=target_id))
         except ValueError:
@@ -134,6 +142,10 @@ class NavigationManager:
                 except:
                     pass  # If zoom fails, just continue
 
+            # Update column assignment display for the new current point
+            if self.column_assignment_feature:
+                self.column_assignment_feature.update_current_value_display()
+
     def previous_point(self, zoom_level):
         """Navigate to the previous point"""
         if self.data_handler.move_previous():
@@ -157,6 +169,10 @@ class NavigationManager:
                     self.map_widget.zoom_to_point(x, y, zoom_level)
                 except:
                     pass  # If zoom fails, just continue
+
+            # Update column assignment display for the new current point
+            if self.column_assignment_feature:
+                self.column_assignment_feature.update_current_value_display()
 
 
 def update_map_display(map_widget, data_handler):
@@ -193,6 +209,9 @@ class GeospatialViewer(QMainWindow):
 
         # Initialize workflow manager
         self.workflow_manager = None
+
+        # Initialize column assignment feature
+        self.column_assignment_feature = None
 
         # Initialize zoom level
         self.current_zoom_level = UIConfig.DEFAULT_ZOOM_LEVEL  # Default zoom level
@@ -255,6 +274,10 @@ class GeospatialViewer(QMainWindow):
         self.record_id_btn = QPushButton(RECORD_ID_BUTTON_TEXT)
         nav_layout.addRow(self.record_id_btn)
 
+        # Button to save the modified shapefile
+        self.save_shp_btn = QPushButton("Save Modified SHP")
+        nav_layout.addRow(self.save_shp_btn)
+
         self.goto_btn = QPushButton(GOTO_BUTTON_TEXT)
         nav_layout.addRow(self.goto_btn)
 
@@ -280,36 +303,43 @@ class GeospatialViewer(QMainWindow):
         self.workflow_label.setWordWrap(True)
         nav_layout.addRow(self.workflow_label)
 
+        # Column Assignment workflow instructions
+        self.column_workflow_label = QLabel(ASSIGN_DATA_WORKFLOW)
+        self.column_workflow_label.setWordWrap(True)
+        nav_layout.addRow(self.column_workflow_label)
+
         top_layout.addWidget(nav_group)
 
         # Add the top section (file ops and navigation) to the main control layout
         control_layout.addWidget(top_section)
 
-        # SHP table display (lower section)
-        table_group = QGroupBox(SHP_TABLE_GROUP_TITLE)
-        table_layout = QVBoxLayout(table_group)
-
-        self.table_widget = TableDisplayWidget()
-        self.table_widget.set_data_handler(self.data_handler)
-        table_layout.addWidget(self.table_widget)
-
-        control_layout.addWidget(table_group)
+        # Table display has been removed to avoid crashes
+        # The table functionality remains available programmatically if needed
+        self.table_widget = None  # Set to None to avoid any table usage
 
         # Initialize the file loader after components are created
         self.file_loader = FileLoader(self.data_handler, self.status_label, self.table_widget, self.map_widget)
         
+        # Initialize column assignment feature after components are created
+        self.column_assignment_feature = ColumnAssignmentFeature(
+            self.data_handler,
+            self.table_widget,
+            self.status_label
+        )
+
         # Initialize navigation manager after components are available
         self.navigation_manager = NavigationManager(
             self.data_handler, 
             self.map_widget, 
             self.status_label, 
             self.id_input,
-            update_map_display
+            update_map_display,
+            self.column_assignment_feature
         )
         
         # Connect signals
-        self.load_shp_btn.clicked.connect(self.file_loader.load_shp_file)
-        self.load_image_btn.clicked.connect(self.file_loader.load_georef_image)
+        self.load_shp_btn.clicked.connect(self.load_shp_file)
+        self.load_image_btn.clicked.connect(self.load_georef_image)
         self.goto_btn.clicked.connect(lambda: self.navigation_manager.goto_id(self.current_zoom_level))
         self.next_btn.clicked.connect(lambda: self.navigation_manager.next_point(self.current_zoom_level))
         self.prev_btn.clicked.connect(lambda: self.navigation_manager.previous_point(self.current_zoom_level))
@@ -317,8 +347,19 @@ class GeospatialViewer(QMainWindow):
         # Connect record ID button after workflow manager is initialized
         self.record_id_btn.clicked.connect(self.record_id_and_next)
         
+        # Connect save SHP button
+        self.save_shp_btn.clicked.connect(self.save_modified_shp)
+        
+        # Connect the next_point_requested signal to the next button's functionality
+        self.column_assignment_feature.next_point_requested.connect(
+            lambda: self.navigation_manager.next_point(self.current_zoom_level)
+        )
+
         # Connect zoom level changes
         self.zoom_slider.valueChanged.connect(self.zoom_level_changed)
+
+        # Insert the column assignment controls after the navigation group and before the table
+        top_layout.addWidget(self.column_assignment_feature.get_control_group())
 
         return control_panel
 
@@ -367,14 +408,50 @@ class GeospatialViewer(QMainWindow):
             self.workflow_manager = WorkflowManager(
                 self.data_handler,
                 self.map_widget,
-                self.table_widget,
+                self.table_widget,  # May be None if table UI is removed
                 self.status_label
             )
+            
+            # Refresh the column assignment dropdown with the new columns
+            if self.column_assignment_feature:
+                self.column_assignment_feature.refresh_columns()
 
     def load_georef_image(self):
         """Load a georeferenced image - wrapper method for UI connection"""
         self.file_loader.load_georef_image()
+        # Also refresh the column assignment dropdown in case the table needs updating
+        if self.column_assignment_feature and self.data_handler.get_geodataframe() is not None:
+            self.column_assignment_feature.refresh_columns()
 
+    def save_modified_shp(self):
+        """Save the modified shapefile with a date-stamped filename"""
+        import datetime
+        import os
+        from pathlib import Path
+        
+        gdf = self.data_handler.get_geodataframe()
+        if gdf is None or gdf.empty:
+            self.status_label.setText("No shapefile loaded to save")
+            return
+            
+        # Get the original shapefile path
+        original_path = self.data_handler.shapefile_loader.shapefile_path
+        if not original_path:
+            self.status_label.setText("No original shapefile path found")
+            return
+            
+        # Create the new filename with date stamp
+        path_obj = Path(original_path)
+        timestamp = datetime.datetime.now().strftime("%d_%m_%Y")
+        new_filename = f"{path_obj.stem}_{timestamp}{path_obj.suffix}"
+        new_path = path_obj.parent / new_filename
+        
+        try:
+            # Save the modified GeoDataFrame
+            gdf.to_file(str(new_path), driver='ESRI Shapefile', encoding='utf-8')
+            self.status_label.setText(f"Modified shapefile saved as: {new_path}")
+        except Exception as e:
+            self.status_label.setText(f"Error saving shapefile: {str(e)}")
 
 def main():
     app = QApplication(sys.argv)

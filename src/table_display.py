@@ -14,27 +14,45 @@ class TableUpdater:
     def update_table(self, gdf):
         """Update the table display based on current GeoDataFrame"""
         if gdf is not None:
-            self.table_widget.setRowCount(len(gdf))
-            self.table_widget.setColumnCount(len(gdf.columns))
+            try:
+                self.table_widget.setRowCount(len(gdf))
+                self.table_widget.setColumnCount(len(gdf.columns))
 
-            # Set headers
-            headers = list(gdf.columns)
-            self.table_widget.setHorizontalHeaderLabels(headers)
+                # Set headers
+                headers = list(gdf.columns)
+                self.table_widget.setHorizontalHeaderLabels(headers)
 
-            # Populate table with data
-            for i in range(len(gdf)):
-                for j, col in enumerate(headers):
-                    # Handle geometry column specially
-                    if col == gdf.geometry.name:
-                        item = QTableWidgetItem("GEOMETRY")
-                        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    else:
-                        item = QTableWidgetItem(str(gdf.iloc[i][col]))
+                # Get geometry column name if it exists
+                geometry_col_name = None
+                try:
+                    geometry_col_name = gdf.geometry.name
+                except AttributeError:
+                    # If there's no geometry column or other error, set to None
+                    geometry_col_name = None
 
-                    self.table_widget.setItem(i, j, item)
+                # Populate table with data
+                for i in range(len(gdf)):
+                    for j, col in enumerate(headers):
+                        # Handle geometry column specially
+                        if geometry_col_name and col == geometry_col_name:
+                            item = QTableWidgetItem("GEOMETRY")
+                            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                        else:
+                            # Handle potential null values
+                            cell_value = gdf.iloc[i][col]
+                            item = QTableWidgetItem(str(cell_value) if cell_value is not None else "")
 
-            # Resize columns to fit content
-            self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+                        self.table_widget.setItem(i, j, item)
+
+                # Resize columns to fit content
+                header = self.table_widget.horizontalHeader()
+                if header:
+                    header.setSectionResizeMode(QHeaderView.ResizeToContents)
+            except Exception as e:
+                print(f"Error updating table: {e}")
+                # Still try to clear the table as a fallback
+                self.table_widget.setRowCount(0)
+                self.table_widget.setColumnCount(0)
 
 
 class TableDataHandler:
@@ -67,9 +85,15 @@ class TableDisplayWidget(QTableWidget):
 
     def update_table(self):
         """Update the table display based on current GeoDataFrame"""
-        if self.data_handler:
-            gdf = self.data_handler.get_geodataframe()
-            self.table_updater.update_table(gdf)
+        try:
+            if self.data_handler:
+                gdf = self.data_handler.get_geodataframe()
+                self.table_updater.update_table(gdf)
+        except Exception as e:
+            print(f"Error in TableDisplayWidget.update_table: {e}")
+            # Clear the table as a fallback
+            self.setRowCount(0)
+            self.setColumnCount(0)
 
     def itemChanged(self, item):
         """Handle item changes in the table"""

@@ -178,17 +178,39 @@ class DataEditor:
     """Handles editing operations on the dataset"""
     
     def update_cell_value(self, gdf, row: int, col: int, value):
-        """Update a specific cell value in the GeoDataFrame
+        """Update a specific cell value in the GeoDataFrame with type conversion.
         
         Args:
-            gdf: The GeoDataFrame to update
-            row: Row index to update
-            col: Column index to update
-            value: New value to set
+            gdf: The GeoDataFrame to update.
+            row: Row index to update.
+            col: Column index to update.
+            value: New value to set (will be converted to column's dtype).
+            
+        Returns:
+            True if update was successful, False otherwise.
+            
+        Raises:
+            ValueError: If the value cannot be converted to the column's data type.
         """
         if gdf is not None:
             col_name = gdf.columns[col]
-            gdf.iloc[row, col] = value
+            target_dtype = gdf[col_name].dtype
+
+            # Attempt to convert the value to the target column's dtype
+            try:
+                if np.issubdtype(target_dtype, np.integer):
+                    converted_value = int(value)
+                elif np.issubdtype(target_dtype, np.floating):
+                    converted_value = float(value)
+                elif np.issubdtype(target_dtype, np.bool_):
+                    converted_value = bool(value)
+                else:
+                    # For other types (e.g., object/string), keep as is
+                    converted_value = value
+            except ValueError:
+                raise ValueError(f"Cannot convert '{value}' to {target_dtype} for column '{col_name}'")
+            
+            gdf.iloc[row, col] = converted_value
             return True
         return False
 
