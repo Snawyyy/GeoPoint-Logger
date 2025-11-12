@@ -1,5 +1,5 @@
 """
-Map display module from scratch using rasterio for proper geospatial alignment
+Map display module with separated visualization and coordinate handling logic
 """
 import matplotlib
 matplotlib.use('Qt5Agg')
@@ -8,20 +8,57 @@ from matplotlib.figure import Figure
 import numpy as np
 from rasterio.plot import show
 import rasterio
+from typing import Optional
+
+import sys
+import os
+# Add the src directory to the path to allow imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from config import DataHandlerConfig
+from utils import get_geometry_coordinates, calculate_zoom_range
 
 
-class MapDisplayWidget(FigureCanvas):
-    """
-    Widget for displaying maps and geospatial data with proper coordinate alignment
-    """
-    def __init__(self, width=10, height=8, dpi=100):
+class CoordinateTransformer:
+    """Handles coordinate transformations and projections"""
+    
+    def __init__(self):
+        self.image_dataset = None
+        self.gdf = None
+    
+    def set_image_dataset(self, image_dataset):
+        """Set the image dataset for coordinate transformations"""
+        self.image_dataset = image_dataset
+    
+    def set_geodataframe(self, gdf):
+        """Set the geodataframe for coordinate transformations"""
+        self.gdf = gdf
+    
+    def get_image_bounds(self):
+        """Get the bounds of the image dataset"""
+        if self.image_dataset:
+            return self.image_dataset.bounds
+        return None
+    
+    def get_shapefile_bounds(self):
+        """Get the bounds of the shapefile"""
+        if self.gdf is not None and not self.gdf.empty:
+            return self.gdf.total_bounds
+        return None
+
+
+class MapVisualizer:
+    """Handles the actual visualization of the map"""
+    
+    def __init__(self, width=DataHandlerConfig.DEFAULT_IMAGE_WIDTH, 
+                 height=DataHandlerConfig.DEFAULT_IMAGE_HEIGHT, 
+                 dpi=DataHandlerConfig.DEFAULT_IMAGE_DPI):
         self.figure = Figure(figsize=(width, height), dpi=dpi)
-        super().__init__(self.figure)
-        
         self.image_data = None
         self.image_dataset = None  # Rasterio dataset
         self.gdf = None
         self.current_index = 0
+        self.coordinate_transformer = CoordinateTransformer()
 
     def set_image_data(self, image_data, image_dataset=None):
         """Set the georeferenced image data and dataset from the data handler"""
@@ -29,14 +66,17 @@ class MapDisplayWidget(FigureCanvas):
         self.image_data = image_data
         # The dataset is passed from the data handler if available
         self.image_dataset = image_dataset
+        self.coordinate_transformer.set_image_dataset(image_dataset)
 
     def set_geodataframe(self, gdf):
         """Set the GeoDataFrame to display"""
         self.gdf = gdf
+        self.coordinate_transformer.set_geodataframe(gdf)
+        
         # Print coordinate system info if available
         if hasattr(gdf, 'crs') and gdf.crs is not None:
             print(f"SHP Coordinate System: {gdf.crs}")
-        
+
         # Print bounds of the shapefile
         if gdf is not None and not gdf.empty:
             bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
@@ -46,15 +86,8 @@ class MapDisplayWidget(FigureCanvas):
         """Set the current index for highlighting the current point"""
         self.current_index = index
 
-    def redraw(self):
-        """Redraw the map with current data"""
-        # Clear the previous plot
-        self.figure.clear()
-
-        # Create subplot
-        ax = self.figure.add_subplot(111)
-
-        # Show georeferenced image if available
+    def draw_image(self, ax):
+        """Draw the georeferenced image on the given axes"""
         if self.image_dataset is not None:
             # Use the image array you already keep
             img = self.image_data
@@ -82,7 +115,7 @@ class MapDisplayWidget(FigureCanvas):
             xs, ys = zip(*corners_xy)
             ax.set_xlim(min(xs), max(xs))
             ax.set_ylim(min(ys), max(ys))
-            
+
             # Print image CRS and bounds for debugging
             print(f"Image CRS: {self.image_dataset.crs}")
             print(f"Image Bounds: {self.image_dataset.bounds}")
@@ -92,18 +125,19 @@ class MapDisplayWidget(FigureCanvas):
             ax.imshow(self.image_data)
             print("Displaying image without georeferencing (no dataset)")
 
-        # Plot shapefile if available
+    def draw_shapefile(self, ax):
+        """Draw the shapefile data on the given axes"""
         if self.gdf is not None and len(self.gdf) > 0:
             # Print shapefile bounds for comparison
             if self.gdf.crs:
                 print(f"Shapefile CRS: {self.gdf.crs}")
             bounds = self.gdf.total_bounds
             print(f"Shapefile bounds: minx={bounds[0]:.2f}, miny={bounds[1]:.2f}, maxx={bounds[2]:.2f}, maxy={bounds[3]:.2f}")
-            
+
             # Plot in the same coordinate system as the image
             # Reproject shapefile to match image CRS if needed
             gdf_to_plot = self.gdf
-            
+
             # If both image and shapefile have CRS, try to align them
             if self.image_dataset and hasattr(self.image_dataset, 'crs') and self.image_dataset.crs:
                 img_crs = self.image_dataset.crs
@@ -120,7 +154,7 @@ class MapDisplayWidget(FigureCanvas):
                     print(f"Image and shapefile both use CRS: {img_crs}")
             else:
                 print("No valid CRS found for image or shapefile")
-            
+
             # Plot the shapefile data
             gdf_to_plot.plot(ax=ax, color='red', markersize=50, alpha=0.7)
 
@@ -139,14 +173,28 @@ class MapDisplayWidget(FigureCanvas):
 
                 ax.legend()
 
+    def redraw(self):
+        """Redraw the map with current data"""
+        # Clear the previous plot
+        self.figure.clear()
+
+        # Create subplot
+        ax = self.figure.add_subplot(111)
+
+        # Show georeferenced image if available
+        self.draw_image(ax)
+
+        # Plot shapefile if available
+        self.draw_shapefile(ax)
+
         # Set equal aspect ratio to prevent stretching
         ax.set_aspect('equal', adjustable='box')
-        
+
         # Update the canvas
         self.figure.tight_layout()
-        self.draw()
+        self.figure.canvas.draw()
 
-    def zoom_to_point(self, x, y, zoom_factor=2):
+    def zoom_to_point(self, x: float, y: float, zoom_factor: float = 2.0):
         """
         Zoom the view to a specific point, maintaining proper coordinate system alignment
         """
@@ -156,16 +204,47 @@ class MapDisplayWidget(FigureCanvas):
         base_range_x = 500.0  # 500 meters default for Israeli Grid
         base_range_y = 500.0  # 500 meters default for Israeli Grid
 
-        # Calculate ranges based on zoom factor (higher zoom_factor = closer zoom, smaller range)
-        xlim_range = base_range_x / zoom_factor
-        ylim_range = base_range_y / zoom_factor
-
-        # Ensure minimum zoom range to avoid excessive zooming
-        min_range = 1.0  # Minimum 1 meter range
-        xlim_range = max(xlim_range, min_range)
-        ylim_range = max(ylim_range, min_range)
+        # Calculate ranges based on zoom factor using utility function
+        xlim_range, ylim_range = calculate_zoom_range(
+            base_range_x, 
+            base_range_y, 
+            zoom_factor, 
+            min_range=1.0
+        )
 
         # Set new limits centered on the point
         ax.set_xlim(x - xlim_range/2, x + xlim_range/2)
         ax.set_ylim(y - ylim_range/2, y + ylim_range/2)  # Standard y-axis orientation
-        self.draw()
+        self.figure.canvas.draw()
+
+
+class MapDisplayWidget(FigureCanvas):
+    """
+    Widget for displaying maps and geospatial data with proper coordinate alignment
+    """
+    def __init__(self, width=DataHandlerConfig.DEFAULT_IMAGE_WIDTH, 
+                 height=DataHandlerConfig.DEFAULT_IMAGE_HEIGHT, 
+                 dpi=DataHandlerConfig.DEFAULT_IMAGE_DPI):
+        self.map_visualizer = MapVisualizer(width, height, dpi)
+        self.figure = self.map_visualizer.figure
+        super().__init__(self.figure)
+
+    def set_image_data(self, image_data, image_dataset=None):
+        """Set the georeferenced image data and dataset from the data handler"""
+        self.map_visualizer.set_image_data(image_data, image_dataset)
+
+    def set_geodataframe(self, gdf):
+        """Set the GeoDataFrame to display"""
+        self.map_visualizer.set_geodataframe(gdf)
+
+    def set_current_index(self, index):
+        """Set the current index for highlighting the current point"""
+        self.map_visualizer.set_current_index(index)
+
+    def redraw(self):
+        """Redraw the map with current data"""
+        self.map_visualizer.redraw()
+
+    def zoom_to_point(self, x: float, y: float, zoom_factor: float = 2.0):
+        """Zoom the map to a specific point"""
+        self.map_visualizer.zoom_to_point(x, y, zoom_factor)

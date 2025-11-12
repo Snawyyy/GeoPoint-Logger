@@ -1,28 +1,107 @@
 """
-Data handler module for geospatial operations using proper geospatial libraries
+Data handler module for geospatial operations with better separation of concerns
 """
 import geopandas as gpd
 import numpy as np
 import rasterio
-from rasterio.plot import show
 from PIL import Image
 import os
+from typing import Optional, Tuple
+
+import sys
+import os
+# Add the src directory to the path to allow imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from config import DataHandlerConfig, CRSConfig
+from utils import find_world_file, parse_world_file, create_geospatial_transform, create_memory_dataset
 
 
-class GeospatialDataHandler:
-    """
-    Handles loading, processing, and manipulation of geospatial data
-    """
+class ImageLoader:
+    """Handles loading of georeferenced images with proper geospatial information"""
+    
     def __init__(self):
-        self.shapefile_path = None
-        self.georef_image_path = None
-        self.gdf = None  # GeoDataFrame
         self.image_data = None
         self.image_dataset = None  # Rasterio dataset
-        self.current_index = 0
 
-    def load_shapefile(self, file_path):
-        """Load a shapefile and store it as a GeoDataFrame"""
+    def load_georef_image(self, file_path: str) -> Tuple[bool, str]:
+        """Load a georeferenced image and handle world file for proper geospatial info
+        
+        Args:
+            file_path: Path to the image file
+            
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        try:
+            # First, try to read the world file if it exists
+            world_file_params = parse_world_file(find_world_file(file_path))
+
+            # Load the image with PIL
+            with Image.open(file_path) as img:
+                self.image_data = np.array(img)
+
+            # Create a virtual rasterio dataset with geospatial information from world file
+            if world_file_params:
+                transform = create_geospatial_transform(world_file_params)
+                
+                self.image_dataset = create_memory_dataset(
+                    self.image_data, 
+                    transform, 
+                    CRSConfig.DEFAULT_CRS
+                )
+                
+                print(f"Transform: {transform}")
+                print(f"Bounds: {self.image_dataset.bounds}")
+
+            else:
+                # No world file - use the image data only
+                print("No world file found, loading image without georeferencing")
+                self.image_dataset = None
+
+            return True, f"Successfully loaded image: {file_path}"
+
+        except Exception as e:
+            print(f"Error loading georeferenced image: {e}")
+            # Fallback to PIL only
+            try:
+                with Image.open(file_path) as img:
+                    self.image_data = np.array(img)
+                    self.image_dataset = None
+                print("Loaded image with PIL as fallback")
+                return True, f"Successfully loaded image (using fallback): {file_path}"
+            except Exception as e2:
+                return False, f"Error loading image: {str(e2)}"
+
+    def get_image_bounds(self) -> Optional[Tuple]:
+        """Get the geospatial bounds of the image"""
+        if self.image_dataset:
+            return self.image_dataset.bounds  # (left, bottom, right, top)
+        return None
+
+    def get_image_crs(self) -> Optional[str]:
+        """Get the coordinate reference system of the image"""
+        if self.image_dataset:
+            return self.image_dataset.crs
+        return None
+
+
+class ShapefileLoader:
+    """Handles loading of shapefiles with geospatial information"""
+    
+    def __init__(self):
+        self.gdf = None  # GeoDataFrame
+        self.shapefile_path = None
+
+    def load_shapefile(self, file_path: str) -> Tuple[bool, str]:
+        """Load a shapefile and store it as a GeoDataFrame
+        
+        Args:
+            file_path: Path to the shapefile
+            
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
         try:
             self.gdf = gpd.read_file(file_path)
             self.shapefile_path = file_path
@@ -41,182 +120,23 @@ class GeospatialDataHandler:
         except Exception as e:
             return False, f"Error loading SHP: {str(e)}"
 
-    def load_georef_image(self, file_path):
-        """Load a georeferenced image and handle world file for proper geospatial info"""
-        try:
-            # First, try to read the world file if it exists
-            world_file_params = self._load_world_file(file_path)
-            
-            # Load the image with PIL
-            with Image.open(file_path) as img:
-                self.image_data = np.array(img)
-            
-            # Create a virtual rasterio dataset with geospatial information from world file
-            if world_file_params:
-                # Create an in-memory georeferenced dataset using the world file parameters
-                from rasterio.io import MemoryFile
-                from rasterio.transform import from_gcps
-                from rasterio.control import GroundControlPoint
-                
-                # Extract parameters
-                pixel_width, rotation_y, rotation_x, pixel_height, top_left_x, top_left_y = world_file_params
-                
-                from rasterio.io import MemoryFile
-                from rasterio.transform import Affine
+    def get_geodataframe(self):
+        """Get the current GeoDataFrame"""
+        return self.gdf
 
-                # A,D,B,E,C,F from the world file
-                pixel_width, rotation_y, rotation_x, pixel_height, top_left_x_c, top_left_y_c = world_file_params
 
-                # Convert center (C,F) to the corner expected by GDAL/rasterio:
-                x0 = top_left_x_c - 0.5*pixel_width - 0.5*rotation_y
-                y0 = top_left_y_c - 0.5*rotation_x - 0.5*pixel_height
-
-                # Affine is [[A, D, x0], [B, E, y0], [0, 0, 1]]
-                transform = Affine(pixel_width, rotation_y, x0,
-                                   rotation_x,  pixel_height, y0)
-
-                # image dimensions
-                height, width = self.image_data.shape[:2]
-
-                profile = {
-                    "driver": "GTiff",
-                    "width": width,
-                    "height": height,
-                    "count": self.image_data.shape[2] if self.image_data.ndim == 3 else 1,
-                    "dtype": self.image_data.dtype,
-                    "transform": transform,
-                    "crs": "EPSG:2039",  # or detect from your workflow
-                }
-
-                memfile = MemoryFile()
-                with memfile.open(**profile) as mem_dataset:
-                    if self.image_data.ndim == 3:
-                        for i in range(self.image_data.shape[2]):
-                            mem_dataset.write(self.image_data[:, :, i], i + 1)
-                    else:
-                        mem_dataset.write(self.image_data, 1)
-
-                self.image_dataset = memfile.open()
-                print(f"Transform: {transform}")
-                print(f"Bounds: {self.image_dataset.bounds}")
-                
-            else:
-                # No world file - use the image data only
-                print("No world file found, loading image without georeferencing")
-                self.image_dataset = None
-                
-            self.georef_image_path = file_path
-            return True, f"Successfully loaded image: {file_path}"
-            
-        except Exception as e:
-            print(f"Error loading georeferenced image: {e}")
-            # Fallback to PIL only
-            try:
-                with Image.open(file_path) as img:
-                    self.image_data = np.array(img)
-                    self.image_dataset = None
-                    self.georef_image_path = file_path
-                print("Loaded image with PIL as fallback")
-                return True, f"Successfully loaded image (using fallback): {file_path}"
-            except Exception as e2:
-                return False, f"Error loading image: {str(e2)}"
+class NavigationManager:
+    """Manages navigation between points in the dataset"""
     
-    def _load_world_file(self, image_path):
-        """Load georeferencing information from associated world file"""
-        import os
-        
-        # Possible extensions for world files - comprehensive list
-        world_extensions = ['.jgw', '.jgwx', '.jpgw', '.JGW', '.JGWX', '.JPGW',  # JPEG world files
-                           '.pgw', '.pgwx', '.PGW', '.PGWX',                   # PNG world files  
-                           '.tfw', '.tfwx', '.TFW', '.TFWX',                   # TIFF world files
-                           '.wld', '.WLD']                                     # Generic world file
-        
-        # Get the base path without extension
-        base_path = os.path.splitext(image_path)[0]
-        
-        # Try to find the world file using multiple strategies
-        world_file_path = None
-        
-        # Strategy 1: Standard extension appending
-        for ext in ['.jgw', '.jgwx', '.jpgw', '.pgw', '.pgwx', '.tfw', '.tfwx', '.wld']:
-            potential_path = base_path + ext
-            if os.path.exists(potential_path):
-                world_file_path = potential_path
-                break
-            # Also try with case variations
-            potential_path_upper = base_path + ext.upper()
-            if os.path.exists(potential_path_upper):
-                world_file_path = potential_path_upper
-                break
-        
-        # Strategy 2: If not found, scan directory for any matching world file
-        if not world_file_path:
-            directory = os.path.dirname(image_path) or '.'
-            image_basename = os.path.splitext(os.path.basename(image_path))[0]
-            for file in os.listdir(directory):
-                file_lower = file.lower()
-                if any(file_lower.endswith(ext.lower().lstrip('.')) for ext in ['.jgw', '.jgwx', '.pgw', '.pgwx', '.tfw', '.tfwx', '.wld']):
-                    # Check if this file corresponds to our image
-                    file_basename = os.path.splitext(file)[0]
-                    if file_basename.lower() == image_basename.lower():
-                        world_file_path = os.path.join(directory, file)
-                        break
-        
-        if world_file_path:
-            try:
-                with open(world_file_path, 'r') as f:
-                    lines = f.read().splitlines()  # Use splitlines() instead of readlines()
-                
-                print(f"Found world file: {world_file_path}")
-                print(f"Raw content: {'|'.join(lines[:6])}")  # Show first 6 lines
-                
-                # Filter out empty lines
-                non_empty_lines = [line.strip() for line in lines if line.strip()]
-                
-                if len(non_empty_lines) >= 6:
-                    values = []
-                    for i in range(6):
-                        try:
-                            val = float(non_empty_lines[i])
-                            values.append(val)
-                        except ValueError:
-                            print(f"Cannot parse line {i+1} as float: '{non_empty_lines[i]}'")
-                            return None  # Return None if parsing fails
-                    
-                    # World file order: A, D, B, E, C, F
-                    # A = pixel width, D = y-rotation, B = x-rotation, E = pixel height, C = x center UL, F = y center UL
-                    pixel_width, rotation_y, rotation_x, pixel_height, top_left_x, top_left_y = values
-                    print(f"World file successfully parsed!")
-                    print(f"Parameters: A={pixel_width}, D={rotation_y}, B={rotation_x}, E={pixel_height}, C={top_left_x}, F={top_left_y}")
-                    
-                    # Check if coordinates are in the expected range for Israeli Grid
-                    if (200000 < top_left_x < 350000 and 500000 < top_left_y < 850000):
-                        print("World file coordinates appear to be in Israeli Grid system (EPSG:2039)")
-                    else:
-                        print("World file coordinates are outside expected Israeli Grid range")
-                        
-                    return (pixel_width, rotation_y, rotation_x, pixel_height, top_left_x, top_left_y)
-                else:
-                    print(f"World file has only {len(non_empty_lines)} lines, need at least 6")
-            except Exception as e:
-                print(f"Error reading world file {world_file_path}: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        print(f"No world file found for {image_path}")
-        return None
+    def __init__(self):
+        self.gdf = None
+        self.current_index = 0
 
-    def get_image_bounds(self):
-        """Get the geospatial bounds of the image"""
-        if self.image_dataset:
-            return self.image_dataset.bounds  # (left, bottom, right, top)
-        return None
-
-    def get_image_crs(self):
-        """Get the coordinate reference system of the image"""
-        if self.image_dataset:
-            return self.image_dataset.crs
-        return None
+    def set_geodataframe(self, gdf):
+        """Set the GeoDataFrame to navigate through"""
+        self.gdf = gdf
+        if gdf is not None and len(gdf) > 0:
+            self.current_index = 0
 
     def get_current_point(self):
         """Get the current point based on the current index"""
@@ -224,43 +144,118 @@ class GeospatialDataHandler:
             return self.gdf.iloc[self.current_index]
         return None
 
-    def get_geodataframe(self):
-        """Get the current GeoDataFrame"""
-        return self.gdf
+    def get_current_index(self) -> int:
+        """Get the current index"""
+        return self.current_index
 
-    def set_current_index(self, index):
+    def set_current_index(self, index: int) -> bool:
         """Set the current index for navigation"""
         if self.gdf is not None and 0 <= index < len(self.gdf):
             self.current_index = index
             return True
         return False
 
-    def get_current_index(self):
-        """Get the current index"""
-        return self.current_index
-
-    def move_next(self):
+    def move_next(self) -> bool:
         """Move to the next point"""
         if self.gdf is not None and len(self.gdf) > 0:
             self.current_index = (self.current_index + 1) % len(self.gdf)
             return True
         return False
 
-    def move_previous(self):
+    def move_previous(self) -> bool:
         """Move to the previous point"""
         if self.gdf is not None and len(self.gdf) > 0:
             self.current_index = (self.current_index - 1) % len(self.gdf)
             return True
         return False
 
-    def move_to_index(self, index):
+    def move_to_index(self, index: int) -> bool:
         """Move to a specific index"""
         return self.set_current_index(index)
 
-    def update_cell_value(self, row, col, value):
-        """Update a specific cell value in the GeoDataFrame"""
-        if self.gdf is not None:
-            col_name = self.gdf.columns[col]
-            self.gdf.iloc[row, col] = value
+
+class DataEditor:
+    """Handles editing operations on the dataset"""
+    
+    def update_cell_value(self, gdf, row: int, col: int, value):
+        """Update a specific cell value in the GeoDataFrame
+        
+        Args:
+            gdf: The GeoDataFrame to update
+            row: Row index to update
+            col: Column index to update
+            value: New value to set
+        """
+        if gdf is not None:
+            col_name = gdf.columns[col]
+            gdf.iloc[row, col] = value
             return True
         return False
+
+
+class GeospatialDataHandler:
+    """
+    Handles loading, processing, and manipulation of geospatial data
+    """
+    def __init__(self):
+        self.image_loader = ImageLoader()
+        self.shapefile_loader = ShapefileLoader()
+        self.navigation_manager = NavigationManager()
+        self.data_editor = DataEditor()
+        
+        self.georef_image_path = None
+
+    def load_shapefile(self, file_path: str) -> Tuple[bool, str]:
+        """Load a shapefile and store it as a GeoDataFrame"""
+        result = self.shapefile_loader.load_shapefile(file_path)
+        if result[0]:  # If loading was successful
+            self.navigation_manager.set_geodataframe(self.shapefile_loader.get_geodataframe())
+        return result
+
+    def load_georef_image(self, file_path: str) -> Tuple[bool, str]:
+        """Load a georeferenced image"""
+        result = self.image_loader.load_georef_image(file_path)
+        if result[0]:  # If loading was successful
+            self.georef_image_path = file_path
+        return result
+
+    def get_image_bounds(self):
+        """Get the geospatial bounds of the image"""
+        return self.image_loader.get_image_bounds()
+
+    def get_image_crs(self):
+        """Get the coordinate reference system of the image"""
+        return self.image_loader.get_image_crs()
+
+    def get_current_point(self):
+        """Get the current point based on the current index"""
+        return self.navigation_manager.get_current_point()
+
+    def get_geodataframe(self):
+        """Get the current GeoDataFrame"""
+        return self.shapefile_loader.get_geodataframe()
+
+    def set_current_index(self, index: int) -> bool:
+        """Set the current index for navigation"""
+        return self.navigation_manager.set_current_index(index)
+
+    def get_current_index(self) -> int:
+        """Get the current index"""
+        return self.navigation_manager.get_current_index()
+
+    def move_next(self) -> bool:
+        """Move to the next point"""
+        return self.navigation_manager.move_next()
+
+    def move_previous(self) -> bool:
+        """Move to the previous point"""
+        return self.navigation_manager.move_previous()
+
+    def move_to_index(self, index: int) -> bool:
+        """Move to a specific index"""
+        return self.navigation_manager.move_to_index(index)
+
+    def update_cell_value(self, row: int, col: int, value) -> bool:
+        """Update a specific cell value in the GeoDataFrame"""
+        gdf = self.get_geodataframe()
+        return self.data_editor.update_cell_value(gdf, row, col, value)
