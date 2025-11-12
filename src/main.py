@@ -113,14 +113,14 @@ class GeospatialViewer(QMainWindow):
 
         # Zoom level control
         self.zoom_slider = QSlider(Qt.Horizontal)
-        self.zoom_slider.setMinimum(1)  # Will represent 0.1x (divided by 10)
-        self.zoom_slider.setMaximum(50)  # Will represent 5.0x (divided by 10)
-        self.zoom_slider.setValue(10)  # Default zoom level of 1.0x (10/10)
+        self.zoom_slider.setMinimum(1)  # Will represent 1x
+        self.zoom_slider.setMaximum(20)  # Will represent 20x
+        self.zoom_slider.setValue(5)  # Default zoom level of 5x
         self.zoom_slider.valueChanged.connect(self.zoom_level_changed)
         nav_layout.addRow("Zoom Level:", self.zoom_slider)
 
         # Zoom level label
-        self.zoom_label = QLabel(f"Zoom: {self.zoom_slider.value()/10.0:.1f}x")
+        self.zoom_label = QLabel(f"Zoom: {self.zoom_slider.value():.1f}x")
         nav_layout.addRow(self.zoom_label)
 
         # Workflow instructions
@@ -154,8 +154,7 @@ class GeospatialViewer(QMainWindow):
 
     def zoom_level_changed(self, value):
         """Update the zoom level when the slider changes"""
-        # Convert slider value (1-50) to actual zoom (0.1x - 5.0x)
-        self.current_zoom_level = value / 10.0
+        self.current_zoom_level = value
         self.zoom_label.setText(f"Zoom: {self.current_zoom_level:.1f}x")
         
     def load_shp_file(self):
