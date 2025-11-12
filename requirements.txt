@@ -1,0 +1,8 @@
+PyQt5==5.15.9
+geopandas
+shapely
+fiona
+matplotlib
+opencv-python
+numpy
+pandas
