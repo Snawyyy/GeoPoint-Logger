@@ -63,9 +63,12 @@ class WorkflowManager:
             self.map_widget.set_current_index(self.data_handler.get_current_index())
             self.map_widget.redraw()
             
-            # Zoom to the current point after a brief delay to ensure redraw is complete
-            from PyQt5.QtCore import QTimer
-            QTimer.singleShot(100, self.zoom_to_current_point)
+            # Process the GUI events to ensure the redraw is complete
+            from PyQt5.QtWidgets import QApplication
+            QApplication.processEvents()
+            
+            # Zoom to the current point immediately
+            self.zoom_to_current_point()
             
             return True
         return False
@@ -74,6 +77,7 @@ class WorkflowManager:
         """
         Zoom the map to the current point
         """
+        # Get the current point AFTER the index has been updated
         current_point = self.data_handler.get_current_point()
         if current_point is not None:
             try:
@@ -87,6 +91,10 @@ class WorkflowManager:
                     centroid = current_point.geometry.centroid
                     x, y = centroid.x, centroid.y
                 
+                # Ensure the map is updated before zooming
+                self.map_widget.redraw()
+                
+                # Now zoom to the point
                 self.map_widget.zoom_to_point(x, y)
             except Exception as e:
                 self.status_label.setText(f"Error zooming to point: {str(e)}")
