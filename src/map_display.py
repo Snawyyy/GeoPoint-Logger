@@ -96,12 +96,12 @@ class MapVisualizer:
         """Set the current index for highlighting the current point"""
         self.current_index = index
 
-    def _apply_image_settings(self):
-        """Apply the current image settings to the original image data"""
-        if self.original_image_data is None:
-            return
+    def _apply_image_settings(self, img):
+        """Apply the current image settings to the given image"""
+        if img is None:
+            return None
 
-        img = self.original_image_data.copy().astype(np.float32)
+        img = img.copy().astype(np.float32)
 
         # Brightness and Contrast
         if self.brightness != 50 or self.contrast != 50:
@@ -128,8 +128,7 @@ class MapVisualizer:
             _, img = cv2.threshold(gray, self.threshold, 255, cv2.THRESH_BINARY)
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) # Convert back to BGR to keep color channels
 
-        self.image_data = img
-        self.redraw()
+        return img
 
     def set_interpolation(self, interpolation: str):
         """Set the interpolation method"""
@@ -139,28 +138,31 @@ class MapVisualizer:
     def set_brightness(self, value: int):
         """Set the brightness level"""
         self.brightness = value
-        self._apply_image_settings()
+        self.redraw()
 
     def set_contrast(self, value: int):
         """Set the contrast level"""
         self.contrast = value
-        self._apply_image_settings()
+        self.redraw()
 
     def set_saturation(self, value: int):
         """Set the saturation level"""
         self.saturation = value
-        self._apply_image_settings()
+        self.redraw()
 
     def set_threshold(self, value: int):
         """Set the threshold level"""
         self.threshold = value
-        self._apply_image_settings()
+        self.redraw()
 
     def draw_image(self, ax):
         """Draw the georeferenced image on the given axes"""
         if self.image_dataset is not None:
-            # Use the image array you already keep
-            img = self.image_data
+            # Apply image settings
+            img = self._apply_image_settings(self.original_image_data)
+            if img is None:
+                return
+
             h, w = img.shape[:2]
 
             # Rasterio affine (maps (col,row) -> (x,y))
@@ -245,6 +247,11 @@ class MapVisualizer:
 
     def redraw(self):
         """Redraw the map with current data"""
+        ax = self.figure.get_axes()[0] if self.figure.get_axes() else None
+        if ax:
+            xlim = ax.get_xlim()
+            ylim = ax.get_ylim()
+
         # Clear the previous plot
         self.figure.clear()
 
@@ -259,6 +266,10 @@ class MapVisualizer:
 
         # Set equal aspect ratio to prevent stretching
         ax.set_aspect('equal', adjustable='box')
+
+        if 'xlim' in locals() and 'ylim' in locals():
+            ax.set_xlim(xlim)
+            ax.set_ylim(ylim)
 
         # Update the canvas
         self.figure.tight_layout()
