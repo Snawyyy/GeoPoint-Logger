@@ -429,7 +429,7 @@ class GeospatialViewer(QMainWindow):
             self.column_assignment_feature.refresh_columns()
 
     def save_modified_shp(self):
-        """Save the modified shapefile with a date-stamped filename"""
+        """Save the modified shapefile by creating a backup of the original and saving the new data to the original path."""
         import datetime
         import os
         from pathlib import Path
@@ -439,22 +439,29 @@ class GeospatialViewer(QMainWindow):
             self.status_label.setText("No shapefile loaded to save")
             return
             
-        # Get the original shapefile path
         original_path = self.data_handler.shapefile_loader.shapefile_path
         if not original_path:
             self.status_label.setText("No original shapefile path found")
             return
             
-        # Create the new filename with date stamp
         path_obj = Path(original_path)
+        stem = path_obj.stem
+        directory = path_obj.parent
         timestamp = datetime.datetime.now().strftime("%d_%m_%Y")
-        new_filename = f"{path_obj.stem}_{timestamp}{path_obj.suffix}"
-        new_path = path_obj.parent / new_filename
-        
+
         try:
-            # Save the modified GeoDataFrame
-            gdf.to_file(str(new_path), driver='ESRI Shapefile', encoding='utf-8')
-            self.status_label.setText(f"Modified shapefile saved as: {new_path}")
+            # Find all files related to the original shapefile and rename them
+            for filename in os.listdir(directory):
+                if filename.startswith(stem):
+                    file_path = directory / filename
+                    file_suffix = Path(filename).suffix
+                    backup_filename = f"{stem}_backup_{timestamp}{file_suffix}"
+                    backup_path = directory / backup_filename
+                    os.rename(file_path, backup_path)
+            
+            # Save the modified GeoDataFrame to the original path
+            gdf.to_file(original_path, driver='ESRI Shapefile', encoding='utf-8')
+            self.status_label.setText(f"Saved to {original_path}. Original backed up with timestamp.")
         except Exception as e:
             self.status_label.setText(f"Error saving shapefile: {str(e)}")
 
