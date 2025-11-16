@@ -274,16 +274,15 @@ class GeospatialViewer(QMainWindow):
         self.id_input = QLineEdit()
         nav_layout.addRow("Current ID:", self.id_input)
 
-        # Button to record the ID and move to next point
-        self.record_id_btn = QPushButton(RECORD_ID_BUTTON_TEXT)
-        nav_layout.addRow(self.record_id_btn)
+        self.goto_btn = QPushButton(GOTO_BUTTON_TEXT)
+        nav_layout.addRow(self.goto_btn)
 
-        # Button to save the modified shapefile
         self.save_shp_btn = QPushButton("Save Modified SHP")
         nav_layout.addRow(self.save_shp_btn)
 
-        self.goto_btn = QPushButton(GOTO_BUTTON_TEXT)
-        nav_layout.addRow(self.goto_btn)
+        # Button to record the ID and move to next point
+        self.record_id_btn = QPushButton(RECORD_ID_BUTTON_TEXT)
+        nav_layout.addRow(self.record_id_btn)
 
         self.next_btn = QPushButton(NEXT_BUTTON_TEXT)
         nav_layout.addRow(self.next_btn)
@@ -301,16 +300,6 @@ class GeospatialViewer(QMainWindow):
         # Zoom level label
         self.zoom_label = QLabel(ZOOM_DISPLAY_FORMAT.format(zoom_level=self.zoom_slider.value()))
         nav_layout.addRow(self.zoom_label)
-
-        # Workflow instructions
-        self.workflow_label = QLabel(WORKFLOW_INSTRUCTIONS)
-        self.workflow_label.setWordWrap(True)
-        nav_layout.addRow(self.workflow_label)
-
-        # Column Assignment workflow instructions
-        self.column_workflow_label = QLabel(ASSIGN_DATA_WORKFLOW)
-        self.column_workflow_label.setWordWrap(True)
-        nav_layout.addRow(self.column_workflow_label)
 
         top_layout.addWidget(nav_group)
 
@@ -345,6 +334,7 @@ class GeospatialViewer(QMainWindow):
         self.load_shp_btn.clicked.connect(self.load_shp_file)
         self.load_image_btn.clicked.connect(self.load_georef_image)
         self.goto_btn.clicked.connect(lambda: self.navigation_manager.goto_id(self.current_zoom_level))
+        self.id_input.returnPressed.connect(lambda: self.navigation_manager.goto_id(self.current_zoom_level))
         self.next_btn.clicked.connect(lambda: self.navigation_manager.next_point(self.current_zoom_level))
         self.prev_btn.clicked.connect(lambda: self.navigation_manager.previous_point(self.current_zoom_level))
         
