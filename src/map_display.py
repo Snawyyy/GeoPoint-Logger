@@ -8,6 +8,7 @@ from matplotlib.figure import Figure
 import numpy as np
 from rasterio.plot import show
 import rasterio
+import cv2
 from typing import Optional
 
 import sys
@@ -55,14 +56,23 @@ class MapVisualizer:
                  dpi=DataHandlerConfig.DEFAULT_IMAGE_DPI):
         self.figure = Figure(figsize=(width, height), dpi=dpi)
         self.image_data = None
+        self.original_image_data = None
         self.image_dataset = None  # Rasterio dataset
         self.gdf = None
         self.current_index = 0
         self.coordinate_transformer = CoordinateTransformer()
 
+        # Image settings
+        self.interpolation = "nearest"
+        self.brightness = 50
+        self.contrast = 50
+        self.saturation = 50
+        self.threshold = 0
+
     def set_image_data(self, image_data, image_dataset=None):
         """Set the georeferenced image data and dataset from the data handler"""
         # The image data is already processed by the data handler
+        self.original_image_data = image_data
         self.image_data = image_data
         # The dataset is passed from the data handler if available
         self.image_dataset = image_dataset
@@ -86,6 +96,66 @@ class MapVisualizer:
         """Set the current index for highlighting the current point"""
         self.current_index = index
 
+    def _apply_image_settings(self):
+        """Apply the current image settings to the original image data"""
+        if self.original_image_data is None:
+            return
+
+        img = self.original_image_data.copy().astype(np.float32)
+
+        # Brightness and Contrast
+        if self.brightness != 50 or self.contrast != 50:
+            brightness = (self.brightness - 50) * 2
+            contrast = self.contrast / 50.0
+            img = img * contrast + brightness
+            img = np.clip(img, 0, 255)
+
+        img = img.astype(np.uint8)
+
+        # Saturation
+        if self.saturation != 50:
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.float32)
+            h, s, v = cv2.split(hsv)
+            saturation_factor = self.saturation / 50.0
+            s = s * saturation_factor
+            s = np.clip(s, 0, 255)
+            final_hsv = cv2.merge((h, s, v))
+            img = cv2.cvtColor(final_hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+        # Threshold
+        if self.threshold > 0:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            _, img = cv2.threshold(gray, self.threshold, 255, cv2.THRESH_BINARY)
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) # Convert back to BGR to keep color channels
+
+        self.image_data = img
+        self.redraw()
+
+    def set_interpolation(self, interpolation: str):
+        """Set the interpolation method"""
+        self.interpolation = interpolation.lower()
+        self.redraw()
+
+    def set_brightness(self, value: int):
+        """Set the brightness level"""
+        self.brightness = value
+        self._apply_image_settings()
+
+    def set_contrast(self, value: int):
+        """Set the contrast level"""
+        self.contrast = value
+        self._apply_image_settings()
+
+    def set_saturation(self, value: int):
+        """Set the saturation level"""
+        self.saturation = value
+        self._apply_image_settings()
+
+    def set_threshold(self, value: int):
+        """Set the threshold level"""
+        self.threshold = value
+        self._apply_image_settings()
+
     def draw_image(self, ax):
         """Draw the georeferenced image on the given axes"""
         if self.image_dataset is not None:
@@ -104,7 +174,7 @@ class MapVisualizer:
             ax.imshow(
                 img,
                 origin="upper",
-                interpolation="nearest",
+                interpolation=self.interpolation,
                 transform=M + ax.transData,
                 resample=True,
             )
@@ -248,3 +318,23 @@ class MapDisplayWidget(FigureCanvas):
     def zoom_to_point(self, x: float, y: float, zoom_factor: float = 2.0):
         """Zoom the map to a specific point"""
         self.map_visualizer.zoom_to_point(x, y, zoom_factor)
+
+    def set_interpolation(self, interpolation: str):
+        """Set the interpolation method"""
+        self.map_visualizer.set_interpolation(interpolation)
+
+    def set_brightness(self, value: int):
+        """Set the brightness level"""
+        self.map_visualizer.set_brightness(value)
+
+    def set_contrast(self, value: int):
+        """Set the contrast level"""
+        self.map_visualizer.set_contrast(value)
+
+    def set_saturation(self, value: int):
+        """Set the saturation level"""
+        self.map_visualizer.set_saturation(value)
+
+    def set_threshold(self, value: int):
+        """Set the threshold level"""
+        self.map_visualizer.set_threshold(value)

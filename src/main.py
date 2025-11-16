@@ -19,6 +19,7 @@ from map_display import MapDisplayWidget
 from table_display import TableDisplayWidget
 from workflow import WorkflowManager
 from column_assignment import ColumnAssignmentFeature
+from image_settings import ImageSettingsFeature
 
 
 class FileLoader:
@@ -213,6 +214,9 @@ class GeospatialViewer(QMainWindow):
         # Initialize column assignment feature
         self.column_assignment_feature = None
 
+        # Initialize image settings feature
+        self.image_settings_feature = None
+
         # Initialize zoom level
         self.current_zoom_level = UIConfig.DEFAULT_ZOOM_LEVEL  # Default zoom level
 
@@ -360,6 +364,17 @@ class GeospatialViewer(QMainWindow):
 
         # Insert the column assignment controls after the navigation group and before the table
         top_layout.addWidget(self.column_assignment_feature.get_control_group())
+
+        # Initialize and add image settings feature
+        self.image_settings_feature = ImageSettingsFeature()
+        top_layout.addWidget(self.image_settings_feature.get_control_group())
+
+        # Connect image settings signals
+        self.image_settings_feature.interpolation_changed.connect(self.map_widget.set_interpolation)
+        self.image_settings_feature.brightness_changed.connect(self.map_widget.set_brightness)
+        self.image_settings_feature.contrast_changed.connect(self.map_widget.set_contrast)
+        self.image_settings_feature.saturation_changed.connect(self.map_widget.set_saturation)
+        self.image_settings_feature.threshold_changed.connect(self.map_widget.set_threshold)
 
         return control_panel
 
