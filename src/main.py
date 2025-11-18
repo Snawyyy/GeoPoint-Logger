@@ -2,24 +2,21 @@
 Main application module for the Geospatial Data Viewer with improved modularity
 """
 import sys
+import os
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QFileDialog, QGroupBox, QFormLayout,
                              QLineEdit, QMessageBox, QSlider, QSplitter)
 from PyQt5.QtCore import Qt
 
-import sys
-import os
-# Add the src directory to the path to allow imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from config import UIConfig, FileExtensionsConfig
-from constants import *
-from data_handler import GeospatialDataHandler
-from map_display import MapDisplayWidget
-from table_display import TableDisplayWidget
-from workflow import WorkflowManager
-from column_assignment import ColumnAssignmentFeature
-from image_settings import ImageSettingsFeature
+from .config import UIConfig, FileExtensionsConfig
+from .constants import *
+from .data_handler import GeospatialDataHandler
+from .map_display import MapDisplayWidget
+from .table_display import TableDisplayWidget
+from .workflow import WorkflowManager
+from .column_assignment import ColumnAssignmentFeature
+from .image_settings import ImageSettingsFeature
+from .layer_list import LayerListWidget
 
 
 class FileLoader:
@@ -32,46 +29,38 @@ class FileLoader:
         self.map_widget = map_widget
         self.column_assignment_feature = column_assignment_feature
 
-    def load_shp_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            None, "Open SHP File", "", FileExtensionsConfig.SHAPEFILE_EXTENSIONS
-        )
+    def load_project(self, folder_path):
+        """Load a project from a folder, including shapefile and all JPG images."""
+        shp_path = os.path.join(folder_path, 'ymishnep.shp')
+        if not os.path.exists(shp_path):
+            self.status_label.setText("ymishnep.shp not found in the selected folder.")
+            return
 
-        if file_path:
-            success, message = self.data_handler.load_shapefile(file_path)
-            if success:
-                # Update the table display (skip if table is disabled)
-                if self.table_widget:
-                    self.table_widget.update_table()
-
-                # Update the map display
-                self._update_map_display()
-
+        success, message = self.data_handler.load_shapefile(shp_path)
+        if not success:
+            self.status_label.setText(message)
+            return
+        
+        image_files = [f for f in os.listdir(folder_path) if f.lower().endswith('.jpg')]
+        if not image_files:
+            self.status_label.setText("No JPG images found in the selected folder.")
+            # We can still proceed with just the shapefile
+        else:
+            image_paths = [os.path.join(folder_path, f) for f in image_files]
+            success, message = self.data_handler.load_georef_images(image_paths)
+            if not success:
                 self.status_label.setText(message)
-            else:
-                self.status_label.setText(message)
+                # Proceeding with just the shapefile if images fail to load
+        
+        self._update_map_display()
+        self.status_label.setText(f"Loaded project from {folder_path}")
 
-    def load_georef_image(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            None, "Open Georeferenced JPG", "", FileExtensionsConfig.IMAGE_EXTENSIONS
-        )
-
-        if file_path:
-            success, message = self.data_handler.load_georef_image(file_path)
-            if success:
-                # Update the map display to show the image
-                self._update_map_display()
-
-                self.status_label.setText(message)
-            else:
-                self.status_label.setText(message)
-    
     def _update_map_display(self):
         """Update the map display with current data"""
         self.map_widget.set_geodataframe(self.data_handler.get_geodataframe())
-        # Pass both the image data and the dataset for proper georeferencing
-        self.map_widget.set_image_data(self.data_handler.image_loader.image_data, 
-                                      self.data_handler.image_loader.image_dataset)
+        self.map_widget.set_image_data(self.data_handler.image_loader.image_datas, 
+                                      self.data_handler.image_loader.image_datasets,
+                                      self.data_handler.image_loader.image_filenames)
         self.map_widget.set_current_index(self.data_handler.get_current_index())
         self.map_widget.redraw()
 
@@ -181,8 +170,9 @@ def update_map_display(map_widget, data_handler):
     map_widget.set_geodataframe(data_handler.get_geodataframe())
     # Pass both the image data and the dataset for proper georeferencing
     map_widget.set_image_data(
-        data_handler.image_loader.image_data, 
-        data_handler.image_loader.image_dataset
+        data_handler.image_loader.image_datas, 
+        data_handler.image_loader.image_datasets,
+        data_handler.image_loader.image_filenames
     )
     map_widget.set_current_index(data_handler.get_current_index())
     map_widget.redraw()
@@ -216,6 +206,9 @@ class GeospatialViewer(QMainWindow):
 
         # Initialize image settings feature
         self.image_settings_feature = None
+
+        # Initialize layer list widget
+        self.layer_list_widget = None
 
         # Initialize zoom level
         self.current_zoom_level = UIConfig.DEFAULT_ZOOM_LEVEL  # Default zoom level
@@ -259,11 +252,8 @@ class GeospatialViewer(QMainWindow):
         file_group = QGroupBox(FILE_OPERATIONS_GROUP_TITLE)
         file_layout = QVBoxLayout(file_group)
 
-        self.load_shp_btn = QPushButton(LOAD_SHP_BUTTON_TEXT)
-        file_layout.addWidget(self.load_shp_btn)
-
-        self.load_image_btn = QPushButton(LOAD_IMAGE_BUTTON_TEXT)
-        file_layout.addWidget(self.load_image_btn)
+        self.load_project_btn = QPushButton("Load Project Folder")
+        file_layout.addWidget(self.load_project_btn)
 
         top_layout.addWidget(file_group)
 
@@ -331,8 +321,7 @@ class GeospatialViewer(QMainWindow):
         )
         
         # Connect signals
-        self.load_shp_btn.clicked.connect(self.load_shp_file)
-        self.load_image_btn.clicked.connect(self.load_georef_image)
+        self.load_project_btn.clicked.connect(self.load_project_folder)
         self.goto_btn.clicked.connect(lambda: self.navigation_manager.goto_id(self.current_zoom_level))
         self.id_input.returnPressed.connect(lambda: self.navigation_manager.goto_id(self.current_zoom_level))
         self.next_btn.clicked.connect(lambda: self.navigation_manager.next_point(self.current_zoom_level))
@@ -365,6 +354,14 @@ class GeospatialViewer(QMainWindow):
         self.image_settings_feature.contrast_changed.connect(self.map_widget.set_contrast)
         self.image_settings_feature.saturation_changed.connect(self.map_widget.set_saturation)
         self.image_settings_feature.threshold_changed.connect(self.map_widget.set_threshold)
+
+        # Initialize and add layer list widget
+        layer_group = QGroupBox("Image Layers")
+        layer_layout = QVBoxLayout(layer_group)
+        self.layer_list_widget = LayerListWidget()
+        layer_layout.addWidget(self.layer_list_widget)
+        top_layout.addWidget(layer_group)
+        self.layer_list_widget.layer_visibility_changed.connect(self.map_widget.set_image_visibility)
 
         return control_panel
 
@@ -405,28 +402,23 @@ class GeospatialViewer(QMainWindow):
 
         self.workflow_manager.record_id_for_current_point(id_value)
 
-    def load_shp_file(self):
-        """Load a shapefile - wrapper method for UI connection"""
-        self.file_loader.load_shp_file()
-        # Initialize the workflow manager after data is loaded
-        if self.data_handler.get_geodataframe() is not None:
-            self.workflow_manager = WorkflowManager(
-                self.data_handler,
-                self.map_widget,
-                self.table_widget,  # May be None if table UI is removed
-                self.status_label
-            )
-            
-            # Refresh the column assignment dropdown with the new columns
-            if self.column_assignment_feature:
-                self.column_assignment_feature.refresh_columns()
-
-    def load_georef_image(self):
-        """Load a georeferenced image - wrapper method for UI connection"""
-        self.file_loader.load_georef_image()
-        # Also refresh the column assignment dropdown in case the table needs updating
-        if self.column_assignment_feature and self.data_handler.get_geodataframe() is not None:
-            self.column_assignment_feature.refresh_columns()
+    def load_project_folder(self):
+        """Load a project folder containing a shapefile and georeferenced images."""
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Project Folder")
+        if folder_path:
+            self.file_loader.load_project(folder_path)
+            if self.data_handler.get_geodataframe() is not None:
+                self.workflow_manager = WorkflowManager(
+                    self.data_handler,
+                    self.map_widget,
+                    self.table_widget,
+                    self.status_label
+                )
+                if self.column_assignment_feature:
+                    self.column_assignment_feature.refresh_columns()
+                if self.layer_list_widget:
+                    print(f"Populating layer list with: {self.data_handler.image_loader.image_filenames}")
+                    self.layer_list_widget.populate_layers(self.data_handler.image_loader.image_filenames)
 
     def save_modified_shp(self):
         """Save the modified shapefile by creating a backup of the original and saving the new data to the original path."""

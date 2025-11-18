@@ -35,17 +35,88 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Data files that might be temporary
+# Logs
+logs/
+
+# Scripts outputs
+*.log
+
+# Exclude all geospatial data by default to protect sensitive geographic data
 *.shp
 *.shx
 *.dbf
 *.prj
+*.cpg
+*.sbn
+*.sbx
+*.fbn
+*.fbx
+*.ain
+*.aih
+*.ixs
+*.mxs
+*.atx
+*.shp.xml
+*.qix
+
+# Image files (to protect sensitive geographic information)
 *.jpg
 *.jpeg
 *.png
 *.tif
 *.tiff
+*.gif
+*.bmp
+*.jp2
+*.j2k
+
+# World files (geospatial referencing files)
+*.jgw
+*.jpgw
+*.pngw
+*.tfw
+*.pgw
+*.pgw
+*.jpw
+*.wld
+*.jgwx  # Add the specific format used in this application
+
+# All auxiliary image files
+*.aux.xml
 
 # Test files that are generated
 test_points.*
 test_georef.*
+
+# Debug logs and temporary files
+debug_log_*.txt
+debug_log_*.py
+
+# Build artifacts and specs
+*.spec
+build/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+sdist/
+bdist/
+
+# Temp files
+*.tmp
+*.temp
+*.bak
+
+# But allow the specific testing data folder (important for the application to work)
+!testing/
+
+# Allow specific test files needed for the application
+!testing/*.jgwx
+!testing/*.jpg
+!testing/*.aux.xml
+!testing/*.cpg
+!testing/*.dbf
+!testing/*.prj
+!testing/*.shp
+!testing/*.shx

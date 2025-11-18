@@ -4,14 +4,9 @@ Workflow module for managing the user workflow with better separation of concern
 from PyQt5.QtWidgets import QMessageBox
 from typing import Optional
 
-import sys
-import os
-# Add the src directory to the path to allow imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from config import WorkflowConfig
-from utils import get_geometry_coordinates
-from constants import NO_SHAPEFILE_LOADED, NO_ID_ENTERED, NO_ID_COLUMN, RECORDED_ID_MESSAGE, ERROR_ZOOMING_MESSAGE
+from .config import WorkflowConfig
+from .utils import get_geometry_coordinates
+from .constants import NO_SHAPEFILE_LOADED, NO_ID_ENTERED, NO_ID_COLUMN, RECORDED_ID_MESSAGE, ERROR_ZOOMING_MESSAGE
 
 
 class IDRecorder:

@@ -1,15 +1,10 @@
 """
 Column assignment feature for the Geospatial Data Viewer
 """
-import sys
-import os
 import logging
-# Add the src directory to the path to allow imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from PyQt5.QtWidgets import QComboBox, QLineEdit, QPushButton, QFormLayout, QGroupBox
 from PyQt5.QtCore import pyqtSignal, QObject
-from constants import *
+from .constants import *
 
 # Set up logging
 logging.basicConfig(

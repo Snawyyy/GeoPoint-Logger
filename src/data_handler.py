@@ -8,81 +8,62 @@ from PIL import Image
 import os
 from typing import Optional, Tuple
 
-import sys
-import os
-# Add the src directory to the path to allow imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from config import DataHandlerConfig, CRSConfig
-from utils import find_world_file, parse_world_file, create_geospatial_transform, create_memory_dataset
+from .config import DataHandlerConfig, CRSConfig
+from .utils import find_world_file, parse_world_file, create_geospatial_transform, create_memory_dataset
 
 
 class ImageLoader:
     """Handles loading of georeferenced images with proper geospatial information"""
     
     def __init__(self):
-        self.image_data = None
-        self.image_dataset = None  # Rasterio dataset
+        self.image_datas = []
+        self.image_datasets = []  # List of Rasterio datasets
+        self.image_filenames = []
 
-    def load_georef_image(self, file_path: str) -> Tuple[bool, str]:
-        """Load a georeferenced image and handle world file for proper geospatial info
-        
-        Args:
-            file_path: Path to the image file
-            
-        Returns:
-            Tuple of (success: bool, message: str)
-        """
+    def load_georef_images(self, file_paths: list) -> Tuple[bool, str]:
+        """Load multiple georeferenced images."""
+        self.image_datas.clear()
+        self.image_datasets.clear()
+        self.image_filenames.clear()
+        for file_path in file_paths:
+            success, message = self._load_single_georef_image(file_path)
+            if not success:
+                return False, message
+        return True, f"Successfully loaded {len(file_paths)} images."
+
+    def _load_single_georef_image(self, file_path: str) -> Tuple[bool, str]:
+        """Load a single georeferenced image and handle world file for proper geospatial info"""
         try:
-            # First, try to read the world file if it exists
             world_file_params = parse_world_file(find_world_file(file_path))
-
-            # Load the image with PIL
             with Image.open(file_path) as img:
-                self.image_data = np.array(img)
+                image_data = np.array(img)
 
-            # Create a virtual rasterio dataset with geospatial information from world file
             if world_file_params:
                 transform = create_geospatial_transform(world_file_params)
-                
-                self.image_dataset = create_memory_dataset(
-                    self.image_data, 
-                    transform, 
-                    CRSConfig.DEFAULT_CRS
-                )
-                
-                print(f"Transform: {transform}")
-                print(f"Bounds: {self.image_dataset.bounds}")
-
+                image_dataset = create_memory_dataset(image_data, transform, CRSConfig.DEFAULT_CRS)
+                self.image_datas.append(image_data)
+                self.image_datasets.append(image_dataset)
+                self.image_filenames.append(os.path.basename(file_path))
             else:
-                # No world file - use the image data only
-                print("No world file found, loading image without georeferencing")
-                self.image_dataset = None
+                self.image_datas.append(image_data)
+                self.image_datasets.append(None)
+                self.image_filenames.append(os.path.basename(file_path))
+                print(f"No world file found for {file_path}, loading without georeferencing")
 
             return True, f"Successfully loaded image: {file_path}"
-
         except Exception as e:
-            print(f"Error loading georeferenced image: {e}")
-            # Fallback to PIL only
-            try:
-                with Image.open(file_path) as img:
-                    self.image_data = np.array(img)
-                    self.image_dataset = None
-                print("Loaded image with PIL as fallback")
-                return True, f"Successfully loaded image (using fallback): {file_path}"
-            except Exception as e2:
-                return False, f"Error loading image: {str(e2)}"
+            return False, f"Error loading image {file_path}: {str(e)}"
 
     def get_image_bounds(self) -> Optional[Tuple]:
-        """Get the geospatial bounds of the image"""
-        if self.image_dataset:
-            return self.image_dataset.bounds  # (left, bottom, right, top)
+        """Get the geospatial bounds of the first image"""
+        if self.image_datasets and self.image_datasets[0]:
+            return self.image_datasets[0].bounds
         return None
 
     def get_image_crs(self) -> Optional[str]:
-        """Get the coordinate reference system of the image"""
-        if self.image_dataset:
-            return self.image_dataset.crs
+        """Get the coordinate reference system of the first image"""
+        if self.image_datasets and self.image_datasets[0]:
+            return self.image_datasets[0].crs
         return None
 
 
@@ -234,12 +215,9 @@ class GeospatialDataHandler:
             self.navigation_manager.set_geodataframe(self.shapefile_loader.get_geodataframe())
         return result
 
-    def load_georef_image(self, file_path: str) -> Tuple[bool, str]:
-        """Load a georeferenced image"""
-        result = self.image_loader.load_georef_image(file_path)
-        if result[0]:  # If loading was successful
-            self.georef_image_path = file_path
-        return result
+    def load_georef_images(self, file_paths: list) -> Tuple[bool, str]:
+        """Load multiple georeferenced images."""
+        return self.image_loader.load_georef_images(file_paths)
 
     def get_image_bounds(self):
         """Get the geospatial bounds of the image"""

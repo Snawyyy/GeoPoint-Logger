@@ -4,18 +4,19 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="geospatial-viewer",
-    version="0.1.0",
-    author="Your Name",
-    author_email="your.email@example.com",
-    description="A tool for viewing and editing geospatial shapefiles with georeferenced images",
+    name="geopoint-logger",
+    version="1.0.0",
+    author="Eitan K",
+    author_email="Etanss9911@gmail.com",
+    description="A tool for efficiently logging raster values at specific points by navigating point-to-point on a map",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/geospatial-viewer",
-    packages=find_packages(),
+    url="https://github.com/Snawyyy/GeoPoint-Logger",
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
     classifiers=[
-        "Development Status :: 3 - Alpha",
-        "Intended Audience :: Developers",
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Science/Research",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
@@ -38,7 +39,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "geospatial-viewer=src.main:main",
+            "geopoint-logger=main:main",
         ],
     },
 )

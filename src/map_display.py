@@ -11,13 +11,8 @@ import rasterio
 import cv2
 from typing import Optional
 
-import sys
-import os
-# Add the src directory to the path to allow imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from config import DataHandlerConfig
-from utils import get_geometry_coordinates, calculate_zoom_range
+from .config import DataHandlerConfig
+from .utils import get_geometry_coordinates, calculate_zoom_range
 
 
 class CoordinateTransformer:
@@ -55,9 +50,11 @@ class MapVisualizer:
                  height=DataHandlerConfig.DEFAULT_IMAGE_HEIGHT, 
                  dpi=DataHandlerConfig.DEFAULT_IMAGE_DPI):
         self.figure = Figure(figsize=(width, height), dpi=dpi)
-        self.image_data = None
-        self.original_image_data = None
-        self.image_dataset = None  # Rasterio dataset
+        self.image_datas = []
+        self.original_image_datas = []
+        self.image_datasets = []  # List of Rasterio datasets
+        self.image_filenames = []
+        self.image_visibility = {}
         self.gdf = None
         self.current_index = 0
         self.coordinate_transformer = CoordinateTransformer()
@@ -69,14 +66,17 @@ class MapVisualizer:
         self.saturation = 50
         self.threshold = 0
 
-    def set_image_data(self, image_data, image_dataset=None):
+    def set_image_data(self, image_datas, image_datasets=None, image_filenames=None):
         """Set the georeferenced image data and dataset from the data handler"""
-        # The image data is already processed by the data handler
-        self.original_image_data = image_data
-        self.image_data = image_data
-        # The dataset is passed from the data handler if available
-        self.image_dataset = image_dataset
-        self.coordinate_transformer.set_image_dataset(image_dataset)
+        self.original_image_datas = image_datas
+        self.image_datas = image_datas
+        self.image_datasets = image_datasets
+        self.image_filenames = image_filenames
+        if image_datasets:
+            self.coordinate_transformer.set_image_dataset(image_datasets[0])
+        if image_filenames:
+            for filename in image_filenames:
+                self.image_visibility[filename] = True
 
     def set_geodataframe(self, gdf):
         """Set the GeoDataFrame to display"""
@@ -155,47 +155,44 @@ class MapVisualizer:
         self.threshold = value
         self.redraw()
 
+    def set_image_visibility(self, filename: str, visible: bool):
+        """Set the visibility of an image layer."""
+        self.image_visibility[filename] = visible
+        self.redraw()
+
     def draw_image(self, ax):
-        """Draw the georeferenced image on the given axes"""
-        if self.image_dataset is not None:
-            # Apply image settings
-            img = self._apply_image_settings(self.original_image_data)
-            if img is None:
-                return
+        """Draw the georeferenced images on the given axes"""
+        if not self.image_datasets:
+            return
 
-            h, w = img.shape[:2]
+        for i, image_dataset in enumerate(self.image_datasets):
+            filename = self.image_filenames[i]
+            if not self.image_visibility.get(filename, True):
+                continue
 
-            # Rasterio affine (maps (col,row) -> (x,y))
-            t = self.image_dataset.transform
+            if image_dataset is not None:
+                img = self._apply_image_settings(self.original_image_datas[i])
+                if img is None:
+                    continue
 
-            # Build a Matplotlib data-space transform
-            from matplotlib.transforms import Affine2D
-            M = Affine2D.from_values(t.a, t.b, t.d, t.e, t.c, t.f)  # [[a b c],[d e f],[0 0 1]]
-
-            # Draw with rotation/shear applied in map coordinates
-            ax.imshow(
-                img,
-                origin="upper",
-                interpolation=self.interpolation,
-                transform=M + ax.transData,
-                resample=True,
-            )
-
-            # Ensure axes cover the rotated footprint (four corners in map coords)
-            corners_px = [(0, 0), (w, 0), (w, h), (0, h)]
-            corners_xy = [t * (x, y) for (x, y) in corners_px]
-            xs, ys = zip(*corners_xy)
-            ax.set_xlim(min(xs), max(xs))
-            ax.set_ylim(min(ys), max(ys))
-
-            # Print image CRS and bounds for debugging
-            print(f"Image CRS: {self.image_dataset.crs}")
-            print(f"Image Bounds: {self.image_dataset.bounds}")
-        elif self.image_data is not None:
-            # Fallback to regular imshow if no dataset
-            # This will show the image at 0,0 without georeferencing
-            ax.imshow(self.image_data)
-            print("Displaying image without georeferencing (no dataset)")
+                h, w = img.shape[:2]
+                t = image_dataset.transform
+                from matplotlib.transforms import Affine2D
+                M = Affine2D.from_values(t.a, t.b, t.d, t.e, t.c, t.f)
+                ax.imshow(
+                    img,
+                    origin="upper",
+                    interpolation=self.interpolation,
+                    transform=M + ax.transData,
+                    resample=True,
+                )
+                corners_px = [(0, 0), (w, 0), (w, h), (0, h)]
+                corners_xy = [t * (x, y) for (x, y) in corners_px]
+                xs, ys = zip(*corners_xy)
+                ax.set_xlim(min(xs), max(xs))
+                ax.set_ylim(min(ys), max(ys))
+            elif self.image_datas[i] is not None:
+                ax.imshow(self.image_datas[i])
 
     def draw_shapefile(self, ax):
         """Draw the shapefile data on the given axes"""
@@ -211,8 +208,8 @@ class MapVisualizer:
             gdf_to_plot = self.gdf
 
             # If both image and shapefile have CRS, try to align them
-            if self.image_dataset and hasattr(self.image_dataset, 'crs') and self.image_dataset.crs:
-                img_crs = self.image_dataset.crs
+            if self.image_datasets and self.image_datasets[0] and hasattr(self.image_datasets[0], 'crs') and self.image_datasets[0].crs:
+                img_crs = self.image_datasets[0].crs
                 if self.gdf.crs and self.gdf.crs != img_crs:
                     # Reproject shapefile to match image CRS
                     try:
@@ -310,9 +307,9 @@ class MapDisplayWidget(FigureCanvas):
         self.figure = self.map_visualizer.figure
         super().__init__(self.figure)
 
-    def set_image_data(self, image_data, image_dataset=None):
+    def set_image_data(self, image_datas, image_datasets=None, image_filenames=None):
         """Set the georeferenced image data and dataset from the data handler"""
-        self.map_visualizer.set_image_data(image_data, image_dataset)
+        self.map_visualizer.set_image_data(image_datas, image_datasets, image_filenames)
 
     def set_geodataframe(self, gdf):
         """Set the GeoDataFrame to display"""
@@ -349,3 +346,7 @@ class MapDisplayWidget(FigureCanvas):
     def set_threshold(self, value: int):
         """Set the threshold level"""
         self.map_visualizer.set_threshold(value)
+
+    def set_image_visibility(self, filename: str, visible: bool):
+        """Set the visibility of an image layer."""
+        self.map_visualizer.set_image_visibility(filename, visible)

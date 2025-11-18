@@ -1,15 +1,10 @@
 """
 Image settings feature for the Geospatial Data Viewer
 """
-import sys
-import os
 from PyQt5.QtWidgets import QComboBox, QSlider, QFormLayout, QGroupBox, QLabel
 from PyQt5.QtCore import pyqtSignal, QObject, Qt
 
-# Add the src directory to the path to allow imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from constants import *
+from .constants import *
 
 
 class ImageSettingsFeature(QObject):
